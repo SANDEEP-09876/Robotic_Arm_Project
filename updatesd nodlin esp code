@@ -1,0 +1,81 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+const char* ssid = "sandeep";
+const char* password = "12345678";
+
+ESP8266WebServer server(80);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+void setup() {
+  Serial.begin(115200);
+
+  // 1. CONNECT WI-FI FIRST (Handles the massive power spike)
+  Serial.println("\nConnecting to Wi-Fi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\n✅ Wi-Fi Connected!");
+  Serial.print("NodeMCU IP: ");
+  Serial.println(WiFi.localIP());
+
+  // 2. WAIT FOR VOLTAGE TO STABILIZE
+  delay(1000); 
+
+  // 3. INITIALIZE SERVO DRIVER SECOND
+  Serial.println("Initializing PCA9685 Arm Driver...");
+  Wire.begin(4, 5); // SDA = D2, SCL = D1
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50); // 50Hz for standard servos
+  delay(10);
+  Serial.println("✅ Arm Ready.");
+
+  // Listen for the Arm API
+  server.on("/api/arm", handleArm);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+void handleArm() {
+  if (!server.hasArg("ch") || !server.hasArg("ang")) {
+    server.send(400, "text/plain", "Missing arguments");
+    return;
+  }
+
+  int ch = server.arg("ch").toInt();
+  int ang = server.arg("ang").toInt();
+  ang = constrain(ang, 0, 180);
+  int pulse = map(ang, 0, 180, 150, 600);
+  
+  // --- THE FIX: WAKE UP AND CHECK I2C ---
+  Wire.beginTransmission(0x40); // 0x40 is the default address of the PCA9685
+  int error = Wire.endTransmission();
+  
+  if (error != 0) {
+    Serial.println("⚠️ ERROR: PCA9685 disconnected from I2C! Attempting to reboot driver...");
+    // Try to kickstart the chip again
+    pwm.begin();
+    pwm.setPWMFreq(50);
+    delay(10);
+  } else {
+    // Even if it didn't fully disconnect, remind it of the 50Hz frequency just in case
+    pwm.setPWMFreq(50); 
+  }
+  // --------------------------------------
+
+  // Move the hardware
+  pwm.setPWM(ch, 0, pulse);
+
+  Serial.printf("Moved Channel %d to %d degrees\n", ch, ang);
+  server.send(200, "text/plain", "OK");
+}
