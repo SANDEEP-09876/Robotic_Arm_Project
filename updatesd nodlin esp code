@@ -3,16 +3,23 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
+// --- NETWORK CREDENTIALS ---
 const char* ssid = "sandeep";
 const char* password = "12345678";
 
 ESP8266WebServer server(80);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
+// --- SERVO CALIBRATION ---
+// If your servos don't reach full 180 or go too far and grind, tweak these numbers.
+// Standard is 150 (0 deg) to 600 (180 deg).
+const int SERVO_MIN = 150; 
+const int SERVO_MAX = 600; 
+
 void setup() {
   Serial.begin(115200);
 
-  // 1. CONNECT WI-FI FIRST (Handles the massive power spike)
+  // 1. CONNECT WI-FI FIRST (Isolates the boot power spike)
   Serial.println("\nConnecting to Wi-Fi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -29,13 +36,15 @@ void setup() {
   // 2. WAIT FOR VOLTAGE TO STABILIZE
   delay(1000); 
 
-  // 3. INITIALIZE SERVO DRIVER SECOND
+  // 3. INITIALIZE SERVO DRIVER 
   Serial.println("Initializing PCA9685 Arm Driver...");
   Wire.begin(4, 5); // SDA = D2, SCL = D1
+  
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
-  pwm.setPWMFreq(50); // 50Hz for standard servos
+  pwm.setPWMFreq(50); // 50Hz for standard analog servos
   delay(10);
+  
   Serial.println("✅ Arm Ready.");
 
   // Listen for the Arm API
@@ -46,7 +55,9 @@ void setup() {
 void loop() {
   server.handleClient();
 }
+
 void handleArm() {
+  // 1. Validate Incoming Data
   if (!server.hasArg("ch") || !server.hasArg("ang")) {
     server.send(400, "text/plain", "Missing arguments");
     return;
@@ -54,28 +65,30 @@ void handleArm() {
 
   int ch = server.arg("ch").toInt();
   int ang = server.arg("ang").toInt();
-  ang = constrain(ang, 0, 180);
-  int pulse = map(ang, 0, 180, 150, 600);
   
-  // --- THE FIX: WAKE UP AND CHECK I2C ---
-  Wire.beginTransmission(0x40); // 0x40 is the default address of the PCA9685
+  // Prevent mechanical damage
+  ang = constrain(ang, 0, 180);
+  
+  // Calculate the physical pulse length
+  int pulse = map(ang, 0, 180, SERVO_MIN, SERVO_MAX);
+
+  // 2. SMART HARDWARE CHECK (No jittering)
+  Wire.beginTransmission(0x40); // Ping the PCA9685
   int error = Wire.endTransmission();
   
   if (error != 0) {
-    Serial.println("⚠️ ERROR: PCA9685 disconnected from I2C! Attempting to reboot driver...");
-    // Try to kickstart the chip again
+    // ONLY reboot the driver if it actually crashed from a voltage drop
+    Serial.println("⚠️ ERROR: PCA9685 disconnected! Rebooting driver...");
     pwm.begin();
+    pwm.setOscillatorFrequency(27000000);
     pwm.setPWMFreq(50);
     delay(10);
-  } else {
-    // Even if it didn't fully disconnect, remind it of the 50Hz frequency just in case
-    pwm.setPWMFreq(50); 
   }
-  // --------------------------------------
 
-  // Move the hardware
+  // 3. Move the hardware
   pwm.setPWM(ch, 0, pulse);
 
-  Serial.printf("Moved Channel %d to %d degrees\n", ch, ang);
+  // 4. Debug & Respond
+  Serial.printf("Moved Channel %d to %d degrees (Pulse: %d)\n", ch, ang, pulse);
   server.send(200, "text/plain", "OK");
 }
