@@ -1,1 +1,29 @@
-n
+from flask import Flask, request, jsonify, render_template
+import requests
+
+app = Flask(__name__)
+
+# --- UPDATE THIS TO YOUR NEW IP ---
+MCU_IP = "http://192.168.1.XX"  
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/arm')
+def manual_arm():
+    ch = request.args.get('ch')
+    ang = request.args.get('ang')
+    
+    print(f"🦾 Relaying Arm Command -> Channel: {ch}, Angle: {ang}°")
+    
+    try:
+        requests.get(f"{MCU_IP}/api/arm?ch={ch}&ang={ang}", timeout=2.0)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        print(f"❌ Connection failed: {e}")
+        return jsonify({"status": "error"}), 500
+
+if __name__ == '__main__':
+    print("Starting Robotic Arm Server...")
+    app.run(host='0.0.0.0', port=5001, debug=True)
