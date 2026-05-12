@@ -1,1 +1,141 @@
-.
+import requests
+from flask import Flask, request, jsonify, render_template
+import threading
+import time
+import json
+
+app = Flask(__name__)
+
+# ==========================================
+# ⚙️ CONFIGURATION 
+# ==========================================
+# Double check this matches the Arduino Serial Monitor!
+MCU_IP = "http://10.11.78.153"  
+
+# Note: No API keys needed here anymore. Your Mac is the brain!
+
+# ==========================================
+# 🌉 HARDWARE BRIDGE (TALKS TO NODEMCU)
+# ==========================================
+def send_to_mcu(endpoint, params=None):
+    """Sends HTTP requests to the ESP8266 over Wi-Fi"""
+    try:
+        requests.get(f"{MCU_IP}{endpoint}", params=params, timeout=2.0)
+    except Exception as e:
+        print(f"[Warning] Hardware Connection Error: {e}")
+
+# ==========================================
+# 🛡️ AUTONOMOUS SAFETY SUBSYSTEM
+# ==========================================
+def autonomous_safety_check():
+    """Monitors ultrasonic sensor. (Fails silently if unplugged)."""
+    while True:
+        try:
+            resp = requests.get(f"{MCU_IP}/api/sensor", timeout=1).json()
+            dist = resp.get("distance_cm", 999)
+            if 0 < dist < 25.0:
+                print(f"⚠️ EMERGENCY HALT: Obstacle at {dist}cm")
+                send_to_mcu("/api/base", {"dir": "stop"})
+        except:
+            pass
+        time.sleep(0.5)
+
+threading.Thread(target=autonomous_safety_check, daemon=True).start()
+
+# ==========================================
+# 🌐 WEB DASHBOARD & MANUAL CONTROLS
+# ==========================================
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/base')
+def manual_base():
+    direction = request.args.get('dir')
+    print(f"🛞 Base Command: Moving {direction}")
+    send_to_mcu("/api/base", {"dir": direction})
+    return jsonify({"status": "forwarded"})
+
+@app.route('/api/arm')
+def manual_arm():
+    ch = request.args.get('ch')
+    ang = request.args.get('ang')
+    print(f"🦾 Arm Command: Channel {ch} to {ang}°")
+    send_to_mcu("/api/arm", {"ch": ch, "ang": ang})
+    return jsonify({"status": "forwarded"})
+
+@app.route('/api/detach')
+def detach_arm():
+    """Teaching Mode: Kills PWM so human can move joints by hand"""
+    print("🔓 Releasing Servo Torque for Teaching Mode...")
+    send_to_mcu("/api/detach")
+    return jsonify({"status": "relaxed"})
+
+@app.route('/api/sensor')
+def proxy_sensor():
+    try:
+        resp = requests.get(f"{MCU_IP}/api/sensor", timeout=1).json()
+        return jsonify(resp)
+    except:
+        return jsonify({"distance_cm": "Offline"})
+
+# ==========================================
+# 🧠 COGNITIVE AI PIPELINE (LOCAL OLLAMA)
+# ==========================================
+@app.route('/api/ai_chat')
+def ai_chat():
+    user_input = request.args.get('text', '')
+    print(f"\n[USER COMMAND]: {user_input}")
+
+    prompt = f"""
+    You are the cognitive brain of a 5-DOF robotic arm and differential drive base.
+    Tools available:
+    - action: "drive", dir: "forward", "backward", "left", "right", "stop", meters: (float)
+    - action: "arm", ch: 0 (Base), 1 (Shoulder), 2 (Elbow), 3 (Wrist), 4 (Gripper), ang: 0 to 180
+
+    USER REQUEST: "{user_input}"
+    Respond ONLY with a valid JSON array of sequential steps. Do not include markdown formatting, explanations, or any other text.
+    Example: [{{"action": "drive", "dir": "forward", "meters": 1.0}}, {{"action": "arm", "ch": 1, "ang": 90}}]
+    """
+
+    try:
+        # Hit the local Ollama server running on your MacBook Air
+        response = requests.post('http://localhost:11434/api/generate', json={
+            "model": "llama3.2",
+            "prompt": prompt,
+            "stream": False,
+            "format": "json" # Explicitly forces Llama to output clean JSON
+        }, timeout=20.0) # Given 20s timeout for local processing
+        
+        # Extract the text from Ollama's response
+        raw_text = response.json().get('response', '[]')
+        commands = json.loads(raw_text)
+        print(f"[LOCAL AI JSON]: {commands}")
+
+        # Execute the commands in a background thread
+        def run_commands():
+            for cmd in commands:
+                if cmd['action'] == 'drive':
+                    send_to_mcu("/api/base", {"dir": cmd['dir']})
+                    # Rough physical estimate: 1 meter = 2 seconds of driving 
+                    duration = float(cmd.get('meters', 0.5)) * 2.0
+                    time.sleep(duration)
+                    send_to_mcu("/api/base", {"dir": "stop"})
+                    time.sleep(0.5) 
+                elif cmd['action'] == 'arm':
+                    send_to_mcu("/api/arm", {"ch": cmd['ch'], "ang": cmd['ang']})
+                    time.sleep(0.5) 
+
+        threading.Thread(target=run_commands).start()
+        return jsonify({"status": "executing", "commands": commands})
+
+    except Exception as e:
+        print(f"[ERROR] Local AI Parsing failed: {e}")
+        return jsonify({"status": "error", "message": str(e)})
+
+# ==========================================
+# 🚀 START SERVER
+# ==========================================
+if __name__ == '__main__':
+    print("Initializing Offline Neural Control Server on Port 5004...")
+    app.run(host='0.0.0.0', port=5004, debug=True, use_reloader=False)
