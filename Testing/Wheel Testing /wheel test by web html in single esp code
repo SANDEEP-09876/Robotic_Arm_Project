@@ -1,0 +1,277 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+// =====================================
+// WiFi Credentials
+// =====================================
+
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// =====================================
+// LEFT DRIVER PINS
+// =====================================
+
+#define L_DIR1 D1
+#define L_PWM1 D2
+
+#define L_DIR2 D3
+#define L_PWM2 D4
+
+// =====================================
+// RIGHT DRIVER PINS
+// =====================================
+
+#define R_DIR1 D5
+#define R_PWM1 D6
+
+#define R_DIR2 D7
+#define R_PWM2 D8
+
+ESP8266WebServer server(80);
+
+// =====================================
+// SPEED
+// =====================================
+
+int motorSpeed = 850;
+
+// =====================================
+// MOTOR FUNCTIONS
+// =====================================
+
+void stopMotors() {
+
+  analogWrite(L_PWM1, 0);
+  analogWrite(L_PWM2, 0);
+
+  analogWrite(R_PWM1, 0);
+  analogWrite(R_PWM2, 0);
+}
+
+// =====================================
+
+void forward() {
+
+  digitalWrite(L_DIR1, HIGH);
+  digitalWrite(L_DIR2, HIGH);
+
+  digitalWrite(R_DIR1, HIGH);
+  digitalWrite(R_DIR2, HIGH);
+
+  analogWrite(L_PWM1, motorSpeed);
+  analogWrite(L_PWM2, motorSpeed);
+
+  analogWrite(R_PWM1, motorSpeed);
+  analogWrite(R_PWM2, motorSpeed);
+}
+
+// =====================================
+
+void backward() {
+
+  digitalWrite(L_DIR1, LOW);
+  digitalWrite(L_DIR2, LOW);
+
+  digitalWrite(R_DIR1, LOW);
+  digitalWrite(R_DIR2, LOW);
+
+  analogWrite(L_PWM1, motorSpeed);
+  analogWrite(L_PWM2, motorSpeed);
+
+  analogWrite(R_PWM1, motorSpeed);
+  analogWrite(R_PWM2, motorSpeed);
+}
+
+// =====================================
+
+void left() {
+
+  digitalWrite(L_DIR1, LOW);
+  digitalWrite(L_DIR2, LOW);
+
+  digitalWrite(R_DIR1, HIGH);
+  digitalWrite(R_DIR2, HIGH);
+
+  analogWrite(L_PWM1, motorSpeed);
+  analogWrite(L_PWM2, motorSpeed);
+
+  analogWrite(R_PWM1, motorSpeed);
+  analogWrite(R_PWM2, motorSpeed);
+}
+
+// =====================================
+
+void right() {
+
+  digitalWrite(L_DIR1, HIGH);
+  digitalWrite(L_DIR2, HIGH);
+
+  digitalWrite(R_DIR1, LOW);
+  digitalWrite(R_DIR2, LOW);
+
+  analogWrite(L_PWM1, motorSpeed);
+  analogWrite(L_PWM2, motorSpeed);
+
+  analogWrite(R_PWM1, motorSpeed);
+  analogWrite(R_PWM2, motorSpeed);
+}
+
+// =====================================
+// WEBPAGE
+// =====================================
+
+String webpage = R"rawliteral(
+
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>ESP8266 Robot</title>
+
+<style>
+
+body{
+  text-align:center;
+  font-family:Arial;
+  background:#111;
+  color:white;
+}
+
+button{
+  width:120px;
+  height:60px;
+  margin:10px;
+  font-size:20px;
+  border:none;
+  border-radius:10px;
+}
+
+.forward{background:green;}
+.backward{background:red;}
+.left{background:orange;}
+.right{background:orange;}
+.stop{background:gray;}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>Robot Controller</h1>
+
+<p>
+<a href="/forward"><button class="forward">Forward</button></a>
+</p>
+
+<p>
+<a href="/left"><button class="left">Left</button></a>
+
+<a href="/stop"><button class="stop">Stop</button></a>
+
+<a href="/right"><button class="right">Right</button></a>
+</p>
+
+<p>
+<a href="/backward"><button class="backward">Backward</button></a>
+</p>
+
+</body>
+</html>
+
+)rawliteral";
+
+// =====================================
+
+void handleRoot() {
+
+  server.send(200, "text/html", webpage);
+}
+
+// =====================================
+// SETUP
+// =====================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(L_DIR1, OUTPUT);
+  pinMode(L_PWM1, OUTPUT);
+
+  pinMode(L_DIR2, OUTPUT);
+  pinMode(L_PWM2, OUTPUT);
+
+  pinMode(R_DIR1, OUTPUT);
+  pinMode(R_PWM1, OUTPUT);
+
+  pinMode(R_DIR2, OUTPUT);
+  pinMode(R_PWM2, OUTPUT);
+
+  stopMotors();
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting");
+
+  while (WiFi.status() != WL_CONNECTED) {
+
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+
+  Serial.println("WiFi Connected");
+
+  Serial.print("IP Address: ");
+
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleRoot);
+
+  server.on("/forward", []() {
+
+    forward();
+    server.send(200, "text/html", webpage);
+  });
+
+  server.on("/backward", []() {
+
+    backward();
+    server.send(200, "text/html", webpage);
+  });
+
+  server.on("/left", []() {
+
+    left();
+    server.send(200, "text/html", webpage);
+  });
+
+  server.on("/right", []() {
+
+    right();
+    server.send(200, "text/html", webpage);
+  });
+
+  server.on("/stop", []() {
+
+    stopMotors();
+    server.send(200, "text/html", webpage);
+  });
+
+  server.begin();
+
+  Serial.println("Server Started");
+}
+
+// =====================================
+// LOOP
+// =====================================
+
+void loop() {
+
+  server.handleClient();
+}
