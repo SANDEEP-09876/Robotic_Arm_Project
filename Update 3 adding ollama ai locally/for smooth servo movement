@@ -1,0 +1,144 @@
+/* only need to change the esp code */
+
+
+
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// ─── NETWORK CREDENTIALS ────────────────────────────────────────────────
+const char* ssid = "sandeep";
+const char* password = "12345678";
+
+ESP8266WebServer server(80);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+// ─── HARDWARE PINS ──────────────────────────────────────────────────────
+// SmartElex Motor Driver Pins
+const int L_PWM = 13; // D7
+const int L_DIR = 0;  // D3
+const int R_PWM = 15; // D8
+const int R_DIR = 2;  // D4
+
+// Servo Calibration (Adjust if servos buzz at limits)
+const int SERVO_MIN = 150; 
+const int SERVO_MAX = 520; 
+// Array to remember current positions of the 5 servos
+int currentPulses[5] = {375, 375, 375, 375, 375}; // 375 is roughly 90 degrees
+
+void setup() {
+  Serial.begin(115200);
+
+  // Set Motor Pins
+  pinMode(L_PWM, OUTPUT);
+  pinMode(L_DIR, OUTPUT);
+  pinMode(R_PWM, OUTPUT);
+  pinMode(R_DIR, OUTPUT);
+  analogWrite(L_PWM, 0);
+  analogWrite(R_PWM, 0);
+
+  // 1. CONNECT WI-FI FIRST (Handles power spikes)
+  Serial.println("\nConnecting to Wi-Fi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\n✅ Wi-Fi Connected!");
+  Serial.print("NodeMCU IP: ");
+  Serial.println(WiFi.localIP());
+
+  // 2. WAIT FOR VOLTAGE TO STABILIZE
+  delay(1000); 
+
+  // 3. INITIALIZE SERVO DRIVER
+  Serial.println("Initializing PCA9685 Arm Driver...");
+  Wire.begin(4, 5); // SDA = D2, SCL = D1
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50); // 50Hz for standard servos
+  delay(10);
+  
+  Serial.println("✅ All Hardware Ready.");
+
+  // 4. API ROUTING
+  server.on("/api/arm", handleArm);
+  server.on("/api/base", handleBase);
+  server.on("/api/detach", handleDetach);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+
+// ─── ARM CONTROL (WITH ANTI-JITTER) ─────────────────────────────────────
+void handleArm() {
+  if (!server.hasArg("ch") || !server.hasArg("ang")) {
+    server.send(400, "text/plain", "Missing arguments");
+    return;
+  }
+
+  int ch = server.arg("ch").toInt();
+  int ang = server.arg("ang").toInt();
+  ang = constrain(ang, 0, 180);
+  int targetPulse = map(ang, 0, 180, SERVO_MIN, SERVO_MAX);
+
+  Wire.beginTransmission(0x40); 
+  if (Wire.endTransmission() != 0) {
+    pwm.begin();
+    pwm.setOscillatorFrequency(27000000);
+    pwm.setPWMFreq(50);
+    delay(10);
+  }
+
+  // --- THE SMOOTH SWEEP ALGORITHM ---
+  int step = (targetPulse > currentPulses[ch]) ? 1 : -1;
+  
+  while (currentPulses[ch] != targetPulse) {
+    currentPulses[ch] += step;
+    pwm.setPWM(ch, 0, currentPulses[ch]);
+    delay(3); // Increase this number (e.g., 5 or 10) to make it move even slower
+  }
+  // ----------------------------------
+
+  Serial.printf("🦾 Arm: Ch %d smoothly moved to %d°\n", ch, ang);
+  server.send(200, "text/plain", "OK");
+}
+// ─── TEACHING MODE (RELAX SERVOS) ───────────────────────────────────────
+void handleDetach() {
+  for (int i = 0; i < 16; i++) {
+    pwm.setPWM(i, 0, 4096); // 4096 fully turns off the PWM pulse
+  }
+  Serial.println("🔓 Arm Relaxed: Ready for Kinesthetic Teaching.");
+  server.send(200, "text/plain", "Detached");
+}
+
+// ─── BASE MOVEMENT CONTROL ──────────────────────────────────────────────
+void handleBase() {
+  String dir = server.arg("dir");
+  int speed = 850; // Range 0-1023
+
+  if (dir == "forward") {
+    digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, HIGH);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "backward") {
+    digitalWrite(L_DIR, LOW); digitalWrite(R_DIR, LOW);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "left") {
+    digitalWrite(L_DIR, LOW); digitalWrite(R_DIR, HIGH);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "right") {
+    digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, LOW);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else {
+    analogWrite(L_PWM, 0); analogWrite(R_PWM, 0);
+  }
+  
+  Serial.println("🛞 Base: Moving " + dir);
+  server.send(200, "text/plain", "OK");
+}
