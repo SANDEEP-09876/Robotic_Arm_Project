@@ -1,29 +1,20 @@
-# Wheel Driver Connections
+You are using:
 
-| NodeMCU ESP8266 | SmartElex Driver |
-|-----------------|------------------|
-| D5              | Left IN1 |
-| D6              | Left IN2 |
-| D7              | Right IN1 |
-| D8              | Right IN2 |
-| GND             | GND |
+* 2 SmartElex dual-channel motor drivers
+* Left side:
+    * both left motors connected to Driver 1
+    * using PWM1 + PWM2 together
+    * using DIR1 + DIR2 together
+* Right side:
+    * both right motors connected to Driver 2
+    * using PWM1 + PWM2 together
+    * using DIR1 + DIR2 together
 
-# Motor Connections
+So each side needs:
 
-| Motor | Driver Output |
-|-------|----------------|
-| Left Wheels  | M1 |
-| Right Wheels | M2 |
+* 2 PWM pins
+* 2 DIR pins
 
-# Power Connections
+Total:
 
-| Power Supply | Driver |
-|--------------|--------|
-| +12V / Battery + | VIN |
-| GND | GND |
-
-# Notes
-
-- Connect all grounds together.
-- Use external battery for motors.
-- Do NOT power motors from NodeMCU.
+* 8 ESP8266 pins
