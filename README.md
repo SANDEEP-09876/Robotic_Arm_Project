@@ -2,8 +2,8 @@
 
 | SmartElex Pin | NodeMCU Pin | Function |
 |----------------|-------------|----------|
-| L_PWM | D7 (GPIO13) | Left Motor Speed |
-| L_DIR | D3 (GPIO0) | Left Motor Direction |
+| L_PWM yellow | D7 (GPIO13) | Left Motor Speed |
+| L_DIR white | D3 (GPIO0) | Left Motor Direction |
 | R_PWM | D8 (GPIO15) | Right Motor Speed |
 | R_DIR | D4 (GPIO2) | Right Motor Direction |
 | GND | G (GND) | Common Ground |
