@@ -3,23 +3,41 @@
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
-// --- NETWORK CREDENTIALS ---
+// ─── NETWORK CREDENTIALS ────────────────────────────────────────────────
 const char* ssid = "sandeep";
 const char* password = "12345678";
 
 ESP8266WebServer server(80);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-// --- SERVO CALIBRATION ---
-// If your servos don't reach full 180 or go too far and grind, tweak these numbers.
-// Standard is 150 (0 deg) to 600 (180 deg).
+// ─── HARDWARE PINS ──────────────────────────────────────────────────────
+// SmartElex Motor Driver Pins
+const int L_PWM = 13; // D7
+const int L_DIR = 0;  // D3
+const int R_PWM = 15; // D8
+const int R_DIR = 2;  // D4
+
+// Servo Calibration
 const int SERVO_MIN = 150; 
-const int SERVO_MAX = 600; 
+const int SERVO_MAX = 520; // Safe limit to prevent 170° hardware lock
+
+// ─── ASYNCHRONOUS TARGET ARRAYS ─────────────────────────────────────────
+// 335 is roughly 90 degrees (center position)
+int currentPulses[5] = {335, 335, 335, 335, 335}; 
+int targetPulses[5]  = {335, 335, 335, 335, 335};
 
 void setup() {
   Serial.begin(115200);
 
-  // 1. CONNECT WI-FI FIRST (Isolates the boot power spike)
+  // Set Motor Pins
+  pinMode(L_PWM, OUTPUT);
+  pinMode(L_DIR, OUTPUT);
+  pinMode(R_PWM, OUTPUT);
+  pinMode(R_DIR, OUTPUT);
+  analogWrite(L_PWM, 0);
+  analogWrite(R_PWM, 0);
+
+  // 1. CONNECT WI-FI FIRST (Handles power spikes)
   Serial.println("\nConnecting to Wi-Fi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -36,28 +54,50 @@ void setup() {
   // 2. WAIT FOR VOLTAGE TO STABILIZE
   delay(1000); 
 
-  // 3. INITIALIZE SERVO DRIVER 
+  // 3. INITIALIZE SERVO DRIVER
   Serial.println("Initializing PCA9685 Arm Driver...");
   Wire.begin(4, 5); // SDA = D2, SCL = D1
-  
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
-  pwm.setPWMFreq(50); // 50Hz for standard analog servos
+  pwm.setPWMFreq(50); // 50Hz for standard servos
   delay(10);
   
-  Serial.println("✅ Arm Ready.");
+  Serial.println("✅ All Hardware Ready.");
 
-  // Listen for the Arm API
+  // 4. API ROUTING
   server.on("/api/arm", handleArm);
+  server.on("/api/base", handleBase);
+  server.on("/api/detach", handleDetach);
+  server.on("/api/estop", handleEStop);
   server.begin();
 }
 
 void loop() {
-  server.handleClient();
+  // 1. Instantly handle any incoming Wi-Fi commands (No lag!)
+  server.handleClient(); 
+
+  // 2. Move the servos smoothly in the background
+  bool isMoving = false;
+  for (int i = 0; i < 5; i++) {
+    if (currentPulses[i] < targetPulses[i]) {
+      currentPulses[i]++;
+      pwm.setPWM(i, 0, currentPulses[i]);
+      isMoving = true;
+    } else if (currentPulses[i] > targetPulses[i]) {
+      currentPulses[i]--;
+      pwm.setPWM(i, 0, currentPulses[i]);
+      isMoving = true;
+    }
+  }
+  
+  // 3. Only apply the tiny delay if motors are actively sweeping
+  if (isMoving) {
+    delay(2); // Sweep speed: Increase this number to make the arm move slower
+  }
 }
 
+// ─── ARM CONTROL (ASYNCHRONOUS NON-BLOCKING) ────────────────────────────
 void handleArm() {
-  // 1. Validate Incoming Data
   if (!server.hasArg("ch") || !server.hasArg("ang")) {
     server.send(400, "text/plain", "Missing arguments");
     return;
@@ -65,30 +105,68 @@ void handleArm() {
 
   int ch = server.arg("ch").toInt();
   int ang = server.arg("ang").toInt();
-  
-  // Prevent mechanical damage
   ang = constrain(ang, 0, 180);
   
-  // Calculate the physical pulse length
-  int pulse = map(ang, 0, 180, SERVO_MIN, SERVO_MAX);
+  // Update the TARGET position, but do NOT block the Wi-Fi!
+  targetPulses[ch] = map(ang, 0, 180, SERVO_MIN, SERVO_MAX);
 
-  // 2. SMART HARDWARE CHECK (No jittering)
-  Wire.beginTransmission(0x40); // Ping the PCA9685
-  int error = Wire.endTransmission();
+  Serial.printf("🎯 Target Set: Ch %d to %d°\n", ch, ang);
   
-  if (error != 0) {
-    // ONLY reboot the driver if it actually crashed from a voltage drop
-    Serial.println("⚠️ ERROR: PCA9685 disconnected! Rebooting driver...");
-    pwm.begin();
-    pwm.setOscillatorFrequency(27000000);
-    pwm.setPWMFreq(50);
-    delay(10);
+  // Instantly reply to Python so the web server never hangs
+  server.send(200, "text/plain", "OK"); 
+}
+
+// ─── TEACHING MODE (RELAX SERVOS) ───────────────────────────────────────
+void handleDetach() {
+  // 1. Tell the background loop to stop tracking the targets
+  for (int i = 0; i < 5; i++) {
+    targetPulses[i] = currentPulses[i]; 
   }
+  
+  // 2. Kill the PWM signals so the gears go limp
+  for (int i = 0; i < 16; i++) {
+    pwm.setPWM(i, 0, 4096); 
+  }
+  
+  Serial.println("🔓 Arm Relaxed: Ready for Kinesthetic Teaching.");
+  server.send(200, "text/plain", "Detached");
+}
 
-  // 3. Move the hardware
-  pwm.setPWM(ch, 0, pulse);
+// ─── BASE MOVEMENT CONTROL ──────────────────────────────────────────────
+void handleBase() {
+  String dir = server.arg("dir");
+  int speed = 850; // Range 0-1023
 
-  // 4. Debug & Respond
-  Serial.printf("Moved Channel %d to %d degrees (Pulse: %d)\n", ch, ang, pulse);
+  if (dir == "forward") {
+    digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, HIGH);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "backward") {
+    digitalWrite(L_DIR, LOW); digitalWrite(R_DIR, LOW);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "left") {
+    digitalWrite(L_DIR, LOW); digitalWrite(R_DIR, HIGH);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else if (dir == "right") {
+    digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, LOW);
+    analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+  } else {
+    analogWrite(L_PWM, 0); analogWrite(R_PWM, 0);
+  }
+  
+  Serial.println("🛞 Base: Moving " + dir);
   server.send(200, "text/plain", "OK");
+}
+// ─── EMERGENCY STOP (FREEZE MID-AIR) ────────────────────────────────────
+void handleEStop() {
+  // 1. Freeze the arm by making targets equal to current positions
+  for (int i = 0; i < 5; i++) {
+    targetPulses[i] = currentPulses[i]; 
+  }
+  
+  // 2. Kill power to the wheels just in case
+  analogWrite(L_PWM, 0); 
+  analogWrite(R_PWM, 0);
+  
+  Serial.println("🚨 E-STOP ACTIVATED: All actuators frozen.");
+  server.send(200, "text/plain", "Halted");
 }
