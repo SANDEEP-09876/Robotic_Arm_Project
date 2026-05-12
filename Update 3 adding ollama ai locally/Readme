@@ -9,18 +9,19 @@ The Terminal Command: When you typed ollama run llama3.2, your Mac reached out t
 
 The Connection: Your master_robot.py file is now programmed to send messages to http://localhost:11434. That is the exact secret backdoor port that the Ollama background server is listening to.
 
-Your Final Launch Sequence
-Since Ollama is running and the model is downloaded, you are completely done with the setup. You just need to turn on your robot.
+              Your Final Launch Sequence
+              Since Ollama is running and the model is downloaded, you are completely done with the setup. You just need to turn on your robot.
+              
+              Open a fresh terminal and run your standard boot sequence:
+              
+              Bash
+              # 1. Go to your project folder
+              cd "Desktop/My Project"
+              
+              # 2. Open your Python toolbox
+              source venv/bin/activate
+              
+              # 3. Start the Master Server
+              python3 master_robot.py
 
-Open a fresh terminal and run your standard boot sequence:
-
-Bash
-# 1. Go to your project folder
-cd "Desktop/My Project"
-
-# 2. Open your Python toolbox
-source venv/bin/activate
-
-# 3. Start the Master Server
-python3 master_robot.py
 Open your browser to http://localhost:5004, click the microphone on your Cyberpunk dashboard, and give your robot a command. Your Mac's processor will do all the thinking, and the arm will move!
