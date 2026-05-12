@@ -314,13 +314,11 @@
     let isThinking    = false;
     let recognition   = null;
 
-    // --- NEW: SYNAPTIC MEMORY VARIABLES ---
-    let isRecordingRoutine = false;
+    // --- SYNAPTIC MEMORY VARIABLES ---
     let memorySequence = [];
+    let isRecordingRoutine = false;
     let lastActionTime = 0;
-    let isExecuting = false;
     let stopExecution = false;
-    // --------------------------------------
 
     const elements = {
       commandInput:      document.getElementById('command-input'),
@@ -374,10 +372,7 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
-       SLIDERS (FIXED WITH TERMINAL FEEDBACK)
-    ═══════════════════════════════════════════════════════════════════════ */
-    /* ═══════════════════════════════════════════════════════════════════════
-       SLIDERS (FIXED: NOW LOGS TO SYNAPTIC MEMORY)
+       SLIDERS (LOGS TO SYNAPTIC MEMORY)
     ═══════════════════════════════════════════════════════════════════════ */
     function setupSliders() {
       sliders.forEach(slider => {
@@ -396,31 +391,24 @@
         slider.el.addEventListener('change', () => {
            printToTerminal('system', `Sending Arm Command -> CH: ${slider.ch} | ANG: ${slider.el.value}°`);
            
-           // --- THE MISSING MEMORY LOGIC ---
            if (isRecordingRoutine) {
                const now = Date.now();
                memorySequence.push({
                    type: 'arm',
                    ch: slider.ch,
                    ang: slider.el.value,
-                   delay: now - lastActionTime // Records the exact pause between moves
+                   delay: now - lastActionTime // Records exact pause
                });
                lastActionTime = now;
                printToTerminal('system', `   ↳ Logged to memory (Step ${memorySequence.length})`);
            }
-           // --------------------------------
 
            fetch(`/api/arm?ch=${slider.ch}&ang=${slider.el.value}`)
              .then(response => {
-                 if (response.ok) {
-                     printToTerminal('system', `✅ Hardware confirmed CH ${slider.ch} movement.`);
-                 } else {
-                     printToTerminal('error', `❌ Python Server Error: HTTP ${response.status}`);
-                 }
+                 if (response.ok) printToTerminal('system', `✅ Hardware confirmed CH ${slider.ch} movement.`);
+                 else printToTerminal('error', `❌ Python Server Error: HTTP ${response.status}`);
              })
-             .catch(err => {
-                 printToTerminal('error', `❌ Network Offline: Is Python running? (${err.message})`);
-             });
+             .catch(err => printToTerminal('error', `❌ Network Offline: Is Python running? (${err.message})`));
         });
 
         setTimeout(updateSliderUI, 100);
@@ -519,7 +507,7 @@
     function stopRecording() { stopRecordingUI(); if (recognition) { try{ recognition.stop(); }catch(e){} } }
 
     /* ═══════════════════════════════════════════════════════════════════════
-       AI PROCESSING (UPDATED: REAL-TIME SLIDER SYNC)
+       AI PROCESSING (REAL-TIME SLIDER SYNC)
     ═══════════════════════════════════════════════════════════════════════ */
     async function processCommand(query) {
       if (isThinking) return;
@@ -535,9 +523,7 @@
         const data = await response.json();
         printToTerminal('ai', data);
 
-        // --- NEW: SYNC UI SLIDERS WITH AI COMMANDS ---
         if (data.commands && Array.isArray(data.commands)) {
-            // Mapping channel numbers to HTML slider IDs
             const channelMap = {
                 0: { slider: 'base-slider',     val: 'base-val',     suffix: '°' },
                 1: { slider: 'shoulder-slider', val: 'shoulder-val', suffix: '°' },
@@ -552,21 +538,16 @@
                     const sliderEl = document.getElementById(uiMap.slider);
                     const valEl = document.getElementById(uiMap.val);
                     
-                    // Update the actual value
                     sliderEl.value = cmd.ang;
-                    
-                    // Calculate the new visual position of the dot
                     const min = parseFloat(sliderEl.min) || 0;
                     const max = parseFloat(sliderEl.max) || 180;
                     const percent = ((cmd.ang - min) / (max - min)) * 100;
                     
-                    // Visually update the text and dot
                     valEl.textContent = cmd.ang + uiMap.suffix;
                     valEl.style.left = `calc(${percent}% + (${8 - (percent / 100) * 16}px))`;
                 }
             });
         }
-        // ---------------------------------------------
 
       } catch (error) { 
           printToTerminal('error', `API unreachable: ${error.message}`); 
@@ -576,9 +557,8 @@
       }
     }
 
-    
     /* ═══════════════════════════════════════════════════════════════════════
-       D-PAD (FIXED WITH TERMINAL FEEDBACK)
+       D-PAD
     ═══════════════════════════════════════════════════════════════════════ */
     function updateDpadAxes(dir) {
       const step = 20.5;
@@ -592,110 +572,21 @@
       printToTerminal('system', `Sending Base Command -> Direction: ${backendDir.toUpperCase()}`);
 
       fetch(`/api/base?dir=${backendDir}`)
-         .then(response => {
-             if (!response.ok) printToTerminal('error', `❌ Python Server Error: HTTP ${response.status}`);
-         })
+         .then(response => { if (!response.ok) printToTerminal('error', `❌ Python Server Error: HTTP ${response.status}`); })
          .catch(err => printToTerminal('error', `❌ Base offline: ${err.message}`));
     }
 
-      /* ═══════════════════════════════════════════════════════════════════════
-       MEMORY EXECUTION ENGINE. dbhggdftygfvasyjfvdyhdygvsdsagvhdsavgghasdydh
-    ═══════════════════════════════════════════════════════════════════════ */
-    async function executeMemorySequence() {
-        if (memorySequence.length === 0) {
-            printToTerminal('error', 'Memory empty. Record a sequence first.');
-            return;
-        }
-        if (isExecuting) return; // Prevent double-clicking
-
-        isExecuting = true;
-        printToTerminal('system', '▶️ EXECUTING SYNAPTIC MEMORY SEQUENCE...');
-
-        for (let step of memorySequence) {
-            if (!isExecuting) {
-                printToTerminal('system', '⏹️ Execution aborted by user.');
-                break; 
-            }
-
-            // Wait for the exact amount of time you paused during recording
-            if (step.delay > 0) {
-                await new Promise(resolve => setTimeout(resolve, step.delay));
-            }
-
-            // Fire the hardware command
-            if (step.type === 'arm') {
-                printToTerminal('system', `Playback -> CH ${step.ch} : ${step.ang}°`);
-                try { await fetch(`/api/arm?ch=${step.ch}&ang=${step.ang}`); } catch(e){}
-            } 
-        }
-
-        isExecuting = false;
-        printToTerminal('system', '✅ Memory execution complete.');
-    }
-/* end of memory code dkjhjdvbvhczxhb nbchmbcxzjzxnmchcbhbjcvzbv */
-
-
     /* ═══════════════════════════════════════════════════════════════════════
-       EVENTS
+       EVENTS & TEACHING MODE LOGIC
     ═══════════════════════════════════════════════════════════════════════ */
     function setupEventListeners() {
-      elements.micBtn.addEventListener('mousedown', startRecording); elements.micBtn.addEventListener('mouseup', stopRecording);
+      // Input elements
+      elements.micBtn.addEventListener('mousedown', startRecording); 
+      elements.micBtn.addEventListener('mouseup', stopRecording);
       elements.sendBtn.addEventListener('click', () => { const q = elements.commandInput.value.trim(); if(q) processCommand(q); });
-      
-      // --- NEW: TEACHING MODE BUTTONS ---
-     document.getElementById('execute-btn').addEventListener('click', async () => {
-        if (memorySequence.length === 0) {
-            printToTerminal('error', 'Memory is empty. Record a routine first.');
-            return;
-        }
-        
-        stopExecution = false; // Reset the kill flag
-        printToTerminal('system', '▶️ EXECUTING SYNAPTIC MEMORY...');
-        
-        for (let i = 0; i < memorySequence.length; i++) {
-            // Check if E-Stop was pressed during the delay
-            if (stopExecution) {
-                printToTerminal('error', '🛑 Execution Aborted by E-Stop.');
-                break; 
-            }
-
-            const step = memorySequence[i];
-            
-            // Wait for the exact timing you recorded
-            await new Promise(resolve => setTimeout(resolve, step.delay));
-            
-            // Check ONE MORE TIME in case E-Stop was pressed exactly as the timer finished
-            if (stopExecution) break; 
-
-            // Fire the command to the hardware
-            if (step.type === 'arm') {
-                fetch(`/api/arm?ch=${step.ch}&ang=${step.ang}`);
-            }
-        }
-        
-        if (!stopExecution) {
-            printToTerminal('system', '✅ Memory Execution Complete.');
-        }
-     });
-
-      document.getElementById('stop-btn').addEventListener('click', () => {
-          isRecordingRoutine = false;
-          isExecuting = false; // Also forces playback to stop
-          printToTerminal('system', `⏹️ Routine Stopped. Saved ${memorySequence.length} physical steps to Synaptic Memory.`);
-      });
-
-      document.getElementById('estop-btn').addEventListener('click', () => {
-        stopExecution = true; // Instantly breaks the JavaScript loop
-        fetch('/api/estop');  // Instantly freezes the hardware mid-sweep
-        printToTerminal('error', '🚨 EMERGENCY STOP ENGAGED. Memory retained.');
-     });
-      // ----------------------------------
-
-      // ... (Keep existing emergency button and d-pad code) ...
-      
-
       elements.commandInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const q = elements.commandInput.value.trim(); if(q) processCommand(q); } });
-      elements.emergencyBtn.addEventListener('click', triggerEmergencyStop);
+
+      // D-Pad
       ['up', 'down', 'left', 'right', 'stop'].forEach(dir => {
         const btn = document.getElementById(`move-${dir}`);
         if (btn) {
@@ -704,10 +595,84 @@
           btn.addEventListener('mouseleave', () => updateDpadAxes('stop'));
         }
       });
+
+      // --- TEACHING MODE & MEMORY BUTTONS ---
+      
+      // 1. RECORD
+      document.getElementById('record-btn').addEventListener('click', () => {
+          isRecordingRoutine = true;
+          stopExecution = false; 
+          memorySequence = [];   
+          lastActionTime = Date.now();
+          document.getElementById('record-btn').style.background = "var(--accent-red)";
+          printToTerminal('system', '🔴 RECORDING STARTED: Move sliders to save steps.');
+      });
+
+      // 2. STOP
+      document.getElementById('stop-btn').addEventListener('click', () => {
+          if (isRecordingRoutine) {
+              isRecordingRoutine = false;
+              document.getElementById('record-btn').style.background = ""; 
+              printToTerminal('system', `⏹️ Recording Stopped. Saved ${memorySequence.length} steps.`);
+          }
+      });
+
+      // 3. EXECUTE
+      document.getElementById('execute-btn').addEventListener('click', async () => {
+          if (memorySequence.length === 0) {
+              printToTerminal('error', 'Memory is empty. Record a routine first.');
+              return;
+          }
+          
+          stopExecution = false; 
+          printToTerminal('system', '▶️ EXECUTING SYNAPTIC MEMORY...');
+          
+          for (let i = 0; i < memorySequence.length; i++) {
+              if (stopExecution) {
+                  printToTerminal('error', '🛑 Execution Aborted by E-Stop.');
+                  break; 
+              }
+
+              const step = memorySequence[i];
+              await new Promise(resolve => setTimeout(resolve, step.delay));
+              if (stopExecution) break; 
+
+              if (step.type === 'arm') {
+                  fetch(`/api/arm?ch=${step.ch}&ang=${step.ang}`);
+                  updateUISlider(step.ch, step.ang); // Visually update the UI during playback
+              }
+          }
+          
+          if (!stopExecution) {
+              printToTerminal('system', '✅ Memory Execution Complete.');
+          }
+      });
+
+      // 4. EMERGENCY STOP
+      elements.emergencyBtn.addEventListener('click', () => {
+          stopExecution = true; 
+          isRecordingRoutine = false; 
+          document.getElementById('record-btn').style.background = ""; 
+          
+          fetch('/api/estop').catch(()=>{}); // Send hardware freeze command
+          printToTerminal('error', '🚨 EMERGENCY STOP ENGAGED. Hardware frozen. Memory retained.');
+      });
+    }
+
+    // Helper function to update UI sliders automatically during Execution playback
+    function updateUISlider(ch, ang) {
+        const sliderMap = { 0: 'base', 1: 'shoulder', 2: 'elbow', 3: 'wrist', 4: 'gripper' };
+        const id = sliderMap[ch];
+        if (id) {
+            const el = document.getElementById(`${id}-slider`);
+            if (el) {
+                el.value = ang;
+                el.dispatchEvent(new Event('input')); 
+            }
+        }
     }
 
     document.addEventListener('DOMContentLoaded', init);
-
 
   </script>
 </body>
