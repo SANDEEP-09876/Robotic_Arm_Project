@@ -1,0 +1,94 @@
+#include <ESP8266WiFi.h>
+
+// LEFT MOTOR DRIVER
+#define L_IN1 D5
+#define L_IN2 D6
+
+// RIGHT MOTOR DRIVER
+#define R_IN1 D7
+#define R_IN2 D8
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(L_IN1, OUTPUT);
+  pinMode(L_IN2, OUTPUT);
+
+  pinMode(R_IN1, OUTPUT);
+  pinMode(R_IN2, OUTPUT);
+
+  Serial.println("Wheel Test Starting...");
+}
+
+void loop() {
+
+  // FORWARD
+  Serial.println("Moving Forward");
+
+  digitalWrite(L_IN1, HIGH);
+  digitalWrite(L_IN2, LOW);
+
+  digitalWrite(R_IN1, HIGH);
+  digitalWrite(R_IN2, LOW);
+
+  delay(3000);
+
+  stopMotors();
+
+  delay(1000);
+
+  // BACKWARD
+  Serial.println("Moving Backward");
+
+  digitalWrite(L_IN1, LOW);
+  digitalWrite(L_IN2, HIGH);
+
+  digitalWrite(R_IN1, LOW);
+  digitalWrite(R_IN2, HIGH);
+
+  delay(3000);
+
+  stopMotors();
+
+  delay(1000);
+
+  // LEFT TURN
+  Serial.println("Turning Left");
+
+  digitalWrite(L_IN1, LOW);
+  digitalWrite(L_IN2, HIGH);
+
+  digitalWrite(R_IN1, HIGH);
+  digitalWrite(R_IN2, LOW);
+
+  delay(2000);
+
+  stopMotors();
+
+  delay(1000);
+
+  // RIGHT TURN
+  Serial.println("Turning Right");
+
+  digitalWrite(L_IN1, HIGH);
+  digitalWrite(L_IN2, LOW);
+
+  digitalWrite(R_IN1, LOW);
+  digitalWrite(R_IN2, HIGH);
+
+  delay(2000);
+
+  stopMotors();
+
+  delay(2000);
+}
+
+void stopMotors() {
+
+  digitalWrite(L_IN1, LOW);
+  digitalWrite(L_IN2, LOW);
+
+  digitalWrite(R_IN1, LOW);
+  digitalWrite(R_IN2, LOW);
+}
