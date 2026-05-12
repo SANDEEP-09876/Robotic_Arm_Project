@@ -1,4 +1,5 @@
-By running the AI locally on your MacBook Air, your robot becomes completely self-contained. It will process voice commands instantly, require absolutely zero internet connection, and you will never see a quota or rate-limit error again.
+# By running the AI locally on your MacBook Air, 
+your robot becomes completely self-contained. It will process voice commands instantly, require absolutely zero internet connection, and you will never see a quota or rate-limit error again.
 
 In this, we are using Terminal to download Ai by the  command "ollama run llama3.2"
 
