@@ -25,19 +25,19 @@ Total:
 
 | NodeMCU | Left Driver |
 |----------|-------------|
-| D1 | DIR1 |
-| D2 | PWM1 |
-| D3 | DIR2 |
-| D4 | PWM2 |
+| D1 | DIR1 orange |
+| D2 | PWM1 yellow|
+| D3 | DIR2 white|
+| D4 | PWM2 red |
 
 # Right Driver Connections
 
 | NodeMCU | Right Driver |
 |----------|--------------|
-| D5 | DIR1 |
-| D6 | PWM1 |
-| D7 | DIR2 |
-| D8 | PWM2 |
+| D5 | DIR1 orange |
+| D6 | PWM1 yellow |
+| D7 | DIR2 white |
+| D8 | PWM2 red |
 
 # Notes
 
