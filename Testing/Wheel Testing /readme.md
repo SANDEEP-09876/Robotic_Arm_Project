@@ -18,3 +18,28 @@ So each side needs:
 Total:
 
 * 8 ESP8266 pins
+
+# Left Driver Connections
+
+| NodeMCU | Left Driver |
+|----------|-------------|
+| D1 | DIR1 |
+| D2 | PWM1 |
+| D3 | DIR2 |
+| D4 | PWM2 |
+
+# Right Driver Connections
+
+| NodeMCU | Right Driver |
+|----------|--------------|
+| D5 | DIR1 |
+| D6 | PWM1 |
+| D7 | DIR2 |
+| D8 | PWM2 |
+
+# Notes
+
+- Left driver controls both left motors
+- Right driver controls both right motors
+- Connect all grounds together
+- Use external battery for motors
