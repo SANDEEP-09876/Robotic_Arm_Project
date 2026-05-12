@@ -1,0 +1,109 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+ESP8266WebServer server(80);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+// Store current servo angles
+int currentAngle[16] = {90,90,90,90,90,90,90,90,
+                        90,90,90,90,90,90,90,90};
+
+void setup() {
+  Serial.begin(115200);
+
+  // SDA = D2(GPIO4), SCL = D1(GPIO5)
+  Wire.begin(4, 5);
+
+  // PCA9685 setup
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50);
+
+  delay(10);
+
+  // Move all servos to initial position
+  for (int ch = 0; ch < 16; ch++) {
+    moveServoSmooth(ch, 90);
+  }
+
+  // WiFi connection
+  Serial.println("\nConnecting to WiFi...");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n✅ Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // API endpoint
+  server.on("/api/arm", handleArm);
+
+  server.begin();
+  Serial.println("Web Server Started");
+}
+
+void loop() {
+  server.handleClient();
+}
+
+// ==========================
+// Smooth Servo Movement
+// ==========================
+void moveServoSmooth(int ch, int targetAngle) {
+
+  targetAngle = constrain(targetAngle, 0, 180);
+
+  int current = currentAngle[ch];
+
+  if (current < targetAngle) {
+
+    for (int angle = current; angle <= targetAngle; angle++) {
+
+      int pulse = map(angle, 0, 180, 150, 600);
+
+      pwm.setPWM(ch, 0, pulse);
+
+      delay(10); // smoothness speed
+    }
+
+  } else {
+
+    for (int angle = current; angle >= targetAngle; angle--) {
+
+      int pulse = map(angle, 0, 180, 150, 600);
+
+      pwm.setPWM(ch, 0, pulse);
+
+      delay(10);
+    }
+  }
+
+  currentAngle[ch] = targetAngle;
+}
+
+// ==========================
+// API Handler
+// ==========================
+void handleArm() {
+
+  int ch = server.arg("ch").toInt();
+  int ang = server.arg("ang").toInt();
+
+  Serial.println("Moving Channel " + String(ch) +
+                 " to " + String(ang));
+
+  moveServoSmooth(ch, ang);
+
+  server.send(200, "text/plain", "Servo Moved Smoothly");
+}
