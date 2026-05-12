@@ -1,23 +1,29 @@
 # Wheel Driver Connections
 
-| NodeMCU | Motor Driver |
-|----------|--------------|
-| D5 | Left IN1 |
-| D6 | Left IN2 |
-| D7 | Right IN1 |
-| D8 | Right IN2 |
-| GND | GND |
+| NodeMCU ESP8266 | SmartElex Driver |
+|-----------------|------------------|
+| D5              | Left IN1 |
+| D6              | Left IN2 |
+| D7              | Right IN1 |
+| D8              | Right IN2 |
+| GND             | GND |
+
+# Motor Connections
+
+| Motor | Driver Output |
+|-------|----------------|
+| Left Wheels  | M1 |
+| Right Wheels | M2 |
 
 # Power Connections
 
 | Power Supply | Driver |
-|---------------|--------|
-| +12V / +5V | VIN |
+|--------------|--------|
+| +12V / Battery + | VIN |
 | GND | GND |
 
-# Motor Connections
+# Notes
 
-| Driver Output | Motor |
-|----------------|-------|
-| OUT1 & OUT2 | Left Wheels |
-| OUT3 & OUT4 | Right Wheels |
+- Connect all grounds together.
+- Use external battery for motors.
+- Do NOT power motors from NodeMCU.
