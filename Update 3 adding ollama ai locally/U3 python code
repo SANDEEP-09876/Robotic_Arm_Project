@@ -87,44 +87,77 @@ def ai_chat():
     user_input = request.args.get('text', '')
     print(f"\n[USER COMMAND]: {user_input}")
 
-    prompt = f"""
-    You are the cognitive brain of a 5-DOF robotic arm and differential drive base.
-    Tools available:
-    - action: "drive", dir: "forward", "backward", "left", "right", "stop", meters: (float)
-    - action: "arm", ch: 0 (Base), 1 (Shoulder), 2 (Elbow), 3 (Wrist), 4 (Gripper), ang: 0 to 180
+    # --- THE FIX: FEW-SHOT PROMPTING ---
+    # Small models learn by copying examples, not by reading long rules.
+    prompt = f"""You are a strict JSON robot controller. Translate the user command into a JSON array.
 
-    USER REQUEST: "{user_input}"
-    Respond ONLY with a valid JSON array of sequential steps. Do not include markdown formatting, explanations, or any other text.
-    Example: [{{"action": "drive", "dir": "forward", "meters": 1.0}}, {{"action": "arm", "ch": 1, "ang": 90}}]
-    """
+    TOOLS ALLOWED:
+    - Drive: {{"action": "drive", "dir": "forward"|"backward"|"left"|"right"|"stop", "meters": float}}
+    - Arm: {{"action": "arm", "ch": 0|1|2|3|4, "ang": 0-180}} (Note: 'base arm joint' = ch 0, 'shoulder' = ch 1)
+
+    EXAMPLES:
+    User: "move forward one meter"
+    Output: [{{"action": "drive", "dir": "forward", "meters": 1.0}}]
+
+    User: "turn the base arm joint to 50 degree"
+    Output: [{{"action": "arm", "ch": 0, "ang": 50}}]
+
+    User: "stop the robot and move the shoulder to 90"
+    Output: [{{"action": "drive", "dir": "stop", "meters": 0.0}}, {{"action": "arm", "ch": 1, "ang": 90}}]
+
+    User: "{user_input}"
+    Output: """
+    # -----------------------------------
 
     try:
-        # Hit the local Ollama server running on your MacBook Air
         response = requests.post('http://localhost:11434/api/generate', json={
             "model": "llama3.2",
             "prompt": prompt,
             "stream": False,
-            "format": "json" # Explicitly forces Llama to output clean JSON
-        }, timeout=20.0) # Given 20s timeout for local processing
+            "format": "json" 
+        }, timeout=20.0)
         
-        # Extract the text from Ollama's response
         raw_text = response.json().get('response', '[]')
-        commands = json.loads(raw_text)
-        print(f"[LOCAL AI JSON]: {commands}")
+        raw_json = json.loads(raw_text)
+        print(f"[RAW AI OUTPUT]: {raw_json}")
 
-        # Execute the commands in a background thread
+        # The Deep Search Algorithm
+        commands = []
+        def extract_commands(data):
+            if isinstance(data, dict):
+                if 'action' in data and data['action'] in ['drive', 'arm']:
+                    commands.append(data)
+                else:
+                    for value in data.values():
+                        extract_commands(value)
+            elif isinstance(data, list):
+                for item in data:
+                    extract_commands(item)
+            elif isinstance(data, str):
+                # Extra Safety Net: If the AI puts the JSON inside a string
+                if '"action"' in data:
+                    try:
+                        parsed_str = json.loads(data)
+                        extract_commands(parsed_str)
+                    except: pass
+                    
+        extract_commands(raw_json)
+        print(f"[EXTRACTED COMMANDS]: {commands}")
+
         def run_commands():
-            for cmd in commands:
-                if cmd['action'] == 'drive':
-                    send_to_mcu("/api/base", {"dir": cmd['dir']})
-                    # Rough physical estimate: 1 meter = 2 seconds of driving 
-                    duration = float(cmd.get('meters', 0.5)) * 2.0
-                    time.sleep(duration)
-                    send_to_mcu("/api/base", {"dir": "stop"})
-                    time.sleep(0.5) 
-                elif cmd['action'] == 'arm':
-                    send_to_mcu("/api/arm", {"ch": cmd['ch'], "ang": cmd['ang']})
-                    time.sleep(0.5) 
+            try:
+                for cmd in commands:
+                    if cmd.get('action') == 'drive':
+                        send_to_mcu("/api/base", {"dir": cmd.get('dir', 'stop')})
+                        duration = float(cmd.get('meters', 0.5)) * 2.0
+                        time.sleep(duration)
+                        send_to_mcu("/api/base", {"dir": "stop"})
+                        time.sleep(0.5) 
+                    elif cmd.get('action') == 'arm':
+                        send_to_mcu("/api/arm", {"ch": cmd.get('ch', 0), "ang": cmd.get('ang', 90)})
+                        time.sleep(0.5) 
+            except Exception as e:
+                print(f"⚠️ [ERROR in Hardware Thread]: {e}")
 
         threading.Thread(target=run_commands).start()
         return jsonify({"status": "executing", "commands": commands})
@@ -132,7 +165,6 @@ def ai_chat():
     except Exception as e:
         print(f"[ERROR] Local AI Parsing failed: {e}")
         return jsonify({"status": "error", "message": str(e)})
-
 # ==========================================
 # 🚀 START SERVER
 # ==========================================
