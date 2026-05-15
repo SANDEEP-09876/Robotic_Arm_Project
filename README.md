@@ -18,3 +18,11 @@
 | GND | G (GND) | Common Ground |
 | SDA | D2 (GPIO4) | I2C Data |
 | SCL | D1 (GPIO5) | I2C Clock |
+
+
+# Ultrasonic sensor 
+NodeMCU Pin (Label),Sensor Pin,Function
+D5,Trig,Trigger Pulse
+D6,Echo,Distance Echo (Via Resistors)
+Vin,VCC,5V Power for Sensor
+G,GND,Sensor Ground
