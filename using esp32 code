@@ -4,8 +4,8 @@
 #include <Adafruit_PWMServoDriver.h>
 
 // ─── WI-FI CREDENTIALS ───────────────────────────────────────
-const char* ssid = "Sandeep";
-const char* password = "1234567890";
+const char* ssid = "sandeep";
+const char* password = "12345678";
 
 WebServer server(80);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
