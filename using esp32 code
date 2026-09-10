@@ -1,0 +1,132 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// ─── WI-FI CREDENTIALS ───────────────────────────────────────
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+WebServer server(80);
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+// ─── ESP32 PIN MAPPING (30-PIN BOARD) ────────────────────────
+// L298N Motor Driver Pins
+const int L_DIR = 12; // Left Direction
+const int L_PWM = 13; // Left Speed
+const int R_DIR = 27; // Right Direction
+const int R_PWM = 14; // Right Speed
+
+// Servo Limits
+const int SERVO_MIN = 150; 
+const int SERVO_MAX = 520; 
+
+// Arrays for Non-Blocking Asynchronous Sweeping
+int currentPulses[5] = {335, 335, 335, 335, 335}; // Start at 90 degrees
+int targetPulses[5] = {335, 335, 335, 335, 335};
+
+// Helper: Convert 0-180 degrees to PCA9685 pulse length
+int mapAngleToPulse(int angle) {
+  return map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
+}
+
+// ─── API ENDPOINTS ───────────────────────────────────────────
+void handleArm() {
+  if (server.hasArg("ch") && server.hasArg("ang")) {
+    int ch = server.arg("ch").toInt();
+    int ang = server.arg("ang").toInt();
+    
+    // Constrain safety limits
+    if (ch >= 0 && ch <= 4 && ang >= 0 && ang <= 180) {
+      targetPulses[ch] = mapAngleToPulse(ang);
+      server.send(200, "text/plain", "Arm Target Updated");
+    } else {
+      server.send(400, "text/plain", "Invalid Parameters");
+    }
+  }
+}
+
+void handleBase() {
+  if (server.hasArg("dir")) {
+    String dir = server.arg("dir");
+    int speed = 200; // ESP32 analogWrite is 0-255 by default in Core 3.0+
+    
+    if (dir == "forward") {
+      digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, HIGH);
+      analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+    } else if (dir == "backward") {
+      digitalWrite(L_DIR, LOW);  digitalWrite(R_DIR, LOW);
+      analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+    } else if (dir == "left") {
+      digitalWrite(L_DIR, LOW);  digitalWrite(R_DIR, HIGH);
+      analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+    } else if (dir == "right") {
+      digitalWrite(L_DIR, HIGH); digitalWrite(R_DIR, LOW);
+      analogWrite(L_PWM, speed); analogWrite(R_PWM, speed);
+    } else if (dir == "stop") {
+      analogWrite(L_PWM, 0);     analogWrite(R_PWM, 0);
+    }
+    server.send(200, "text/plain", "Base Command Executed");
+  }
+}
+
+void handleEStop() {
+  // Overwrite target pulses to freeze servos instantly
+  for (int i = 0; i < 5; i++) {
+    targetPulses[i] = currentPulses[i];
+  }
+  // Cut motor power
+  analogWrite(L_PWM, 0); analogWrite(R_PWM, 0);
+  server.send(200, "text/plain", "EMERGENCY STOP ENGAGED");
+}
+
+// ─── SETUP & LOOP ────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize L298N Pins
+  pinMode(L_DIR, OUTPUT); pinMode(L_PWM, OUTPUT);
+  pinMode(R_DIR, OUTPUT); pinMode(R_PWM, OUTPUT);
+
+  // Initialize I2C on standard ESP32 pins (SDA=21, SCL=22)
+  Wire.begin(21, 22);
+  pwm.begin();
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(50);
+  
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("\nESP32 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  // Register API Routes
+  server.on("/api/arm", HTTP_GET, handleArm);
+  server.on("/api/base", HTTP_GET, handleBase);
+  server.on("/api/estop", HTTP_GET, handleEStop);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient(); // Instantly handle Wi-Fi
+  
+  bool isMoving = false;
+  
+  // Non-Blocking Target Seeking for Servos
+  for (int i = 0; i < 5; i++) {
+    if (currentPulses[i] < targetPulses[i]) {
+      currentPulses[i]++;
+      pwm.setPWM(i, 0, currentPulses[i]);
+      isMoving = true;
+    } else if (currentPulses[i] > targetPulses[i]) {
+      currentPulses[i]--;
+      pwm.setPWM(i, 0, currentPulses[i]);
+      isMoving = true;
+    }
+  }
+  
+  // Micro-delay only applied if actuators are sweeping
+  if (isMoving) { delay(2); }
+}
